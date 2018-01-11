@@ -109,15 +109,14 @@ type Checkpointer struct {
 	isAllowed bool
 }
 
-// CheckpointAll marks all consumed messages as processed.
 func (cp *Checkpointer) CheckpointAll() error {
-	msg := "\n{\"action\": \"checkpoint\", \"checkpoint\": null}\n"
+	msg := fmt.Sprintf("\n{\"action\": \"checkpoint\", \"sequenceNumber\": null, \"subSequenceNumber\": null}\n")
 	return cp.doCheckpoint(msg)
 }
 
 // CheckpointSeq marks messages up to sequence number as processed.
-func (cp *Checkpointer) CheckpointSeq(seqNum string) error {
-	msg := fmt.Sprintf("\n{\"action\": \"checkpoint\", \"checkpoint\": \"%s\"}\n", seqNum)
+func (cp *Checkpointer) CheckpointSeq(seqNum, subSeqNum string) error {
+	msg := fmt.Sprintf("\n{\"action\": \"checkpoint\", \"sequenceNumber\": \"%s\", \"subSequenceNumber\": \"%s\"}\n", seqNum, subSeqNum)
 	return cp.doCheckpoint(msg)
 }
 
@@ -150,9 +149,10 @@ func (cp *Checkpointer) doCheckpoint(msg string) error {
 // KclRecord is an individual kinesis record.  Note that the body is always
 // base64 encoded.
 type KclRecord struct {
-	DataB64        string `json:"data"`
-	PartitionKey   string `json:"partitionKey"`
-	SequenceNumber string `json:"sequenceNumber"`
+	DataB64           string `json:"data"`
+	PartitionKey      string `json:"partitionKey"`
+	SequenceNumber    string `json:"sequenceNumber"`
+	SubSequenceNumber string `json:"subSequenceNumber"`
 }
 
 // KclAction is a request from the local KCL daemon.

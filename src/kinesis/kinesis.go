@@ -32,6 +32,9 @@ import (
 	"os"
 )
 
+// docs
+// https://github.com/awslabs/amazon-kinesis-client/blob/master/src/main/java/com/amazonaws/services/kinesis/multilang/package-info.java
+
 // RecordConsumer interface must be implemented by Go KCL consumers and then
 // invoked using Run().  Only a single RecordConsumer should ever be Run() since
 // it depends on stdin/stdout for the MultiLangDaemon control protocol.
@@ -44,6 +47,9 @@ type RecordConsumer interface {
 
 	// Shutdown is called before termination.
 	Shutdown(ShutdownType, *Checkpointer) error
+
+	//Checkpoint on retryable exceptions
+	Checkpoint(string, string) error // ShutdownException, ThrottlingException, InvalidStateException
 }
 
 // ShutdownType indicates whether we have a graceful or zombie shutdown.
@@ -79,16 +85,18 @@ func Run(c RecordConsumer) {
 			err = c.ProcessRecords(req.Records, checkpointer)
 
 		case req.Action == "initialize":
-			err = c.Init(*req.ShardID)
+			err = c.Init(req.ShardID)
 
 		case req.Action == "shutdown":
 			shutdownType := GracefulShutdown
-			if req.Reason == nil || *req.Reason == "ZOMBIE" {
+			if req.Reason == "" || req.Reason == "ZOMBIE" {
 				checkpointer.isAllowed = false
 				shutdownType = ZombieShutdown
 			}
 			err = c.Shutdown(shutdownType, checkpointer)
-
+			/* 		case req.Action == "checkpoint":
+			msg := fmt.Sprintf("\n{\"action\": \"checkpoint\", \"checkpoint\": \"%s\"}\n", req.Checkpoint)
+			checkpointer.doCheckpoint(msg) */
 		default:
 			err = fmt.Errorf("Unsupported KCL action: %s", req.Action)
 		}
@@ -109,14 +117,15 @@ type Checkpointer struct {
 	isAllowed bool
 }
 
+// CheckpointAll marks all consumed messages as processed.
 func (cp *Checkpointer) CheckpointAll() error {
-	msg := fmt.Sprintf("\n{\"action\": \"checkpoint\", \"sequenceNumber\": null, \"subSequenceNumber\": null}\n")
+	msg := "\n{\"action\": \"checkpoint\", \"sequenceNumber\": null}\n"
 	return cp.doCheckpoint(msg)
 }
 
 // CheckpointSeq marks messages up to sequence number as processed.
-func (cp *Checkpointer) CheckpointSeq(seqNum, subSeqNum string) error {
-	msg := fmt.Sprintf("\n{\"action\": \"checkpoint\", \"sequenceNumber\": \"%s\", \"subSequenceNumber\": \"%s\"}\n", seqNum, subSeqNum)
+func (cp *Checkpointer) CheckpointSeq(seqNum string) error {
+	msg := fmt.Sprintf("\n{\"action\": \"checkpoint\", \"sequenceNumber\": \"%s\", \"subSequenceNumber\": \"null\"}\n", seqNum)
 	return cp.doCheckpoint(msg)
 }
 
@@ -138,8 +147,8 @@ func (cp *Checkpointer) doCheckpoint(msg string) error {
 	} else if ack.Action != "checkpoint" {
 		fmt.Fprintf(os.Stderr, "Received invalid checkpoint ack: %s\n", ack.Action)
 		os.Exit(1)
-	} else if ack.Error != nil {
-		return fmt.Errorf(*ack.Error)
+	} else if ack.Error != "" {
+		return fmt.Errorf(ack.Error)
 	}
 
 	// success
@@ -149,19 +158,19 @@ func (cp *Checkpointer) doCheckpoint(msg string) error {
 // KclRecord is an individual kinesis record.  Note that the body is always
 // base64 encoded.
 type KclRecord struct {
-	DataB64           string `json:"data"`
-	PartitionKey      string `json:"partitionKey"`
-	SequenceNumber    string `json:"sequenceNumber"`
-	SubSequenceNumber string `json:"subSequenceNumber"`
+	DataB64        string `json:"data"`
+	PartitionKey   string `json:"partitionKey"`
+	SequenceNumber string `json:"sequenceNumber"`
 }
 
 // KclAction is a request from the local KCL daemon.
 type KclAction struct {
-	Action  string       `json:"action"`
-	ShardID *string      `json:"shardId"`
-	Records []*KclRecord `json:"records"`
-	Reason  *string      `json:"reason"`
-	Error   *string      `json:"error"`
+	Action     string       `json:"action"`
+	ShardID    string       `json:"shardId"`
+	Records    []*KclRecord `json:"records"`
+	Reason     string       `json:"reason"`
+	Error      string       `json:"error"`
+	Checkpoint string       `json:"checkpoint"`
 }
 
 // getAction reads a request from the KCL MultiLangDaemon.

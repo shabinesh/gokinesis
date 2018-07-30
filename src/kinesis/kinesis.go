@@ -29,7 +29,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+)
+
+var (
+	Stdin            = bufio.NewReader(os.Stdin)
+	Stdout io.Writer = os.Stdout
 )
 
 // docs
@@ -107,7 +113,7 @@ func Run(c RecordConsumer) {
 		}
 
 		// respond with ack
-		fmt.Printf("\n{\"action\": \"status\", \"responseFor\": \"%s\"}\n", req.Action)
+		fmt.Fprintf(Stdout, "\n{\"action\": \"status\", \"responseFor\": \"%s\"}\n", req.Action)
 	}
 }
 
@@ -135,7 +141,7 @@ func (cp *Checkpointer) doCheckpoint(msg string) error {
 	}
 
 	// send checkpoint req
-	fmt.Print(msg)
+	fmt.Fprint(Stdout, msg)
 
 	// receive checkpoint ack
 	ack := getAction()
@@ -175,11 +181,13 @@ type KclAction struct {
 
 // getAction reads a request from the KCL MultiLangDaemon.
 func getAction() *KclAction {
-	bio := bufio.NewReader(os.Stdin)
 	var buffer bytes.Buffer
 	for {
-		linePart, hasMoreInLine, err := bio.ReadLine()
+		linePart, hasMoreInLine, err := Stdin.ReadLine()
 		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
 			panic("Unable to read line from stdin " + err.Error())
 		}
 		buffer.Write(linePart)
